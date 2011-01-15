@@ -11,3 +11,5 @@ notebooks.each { |notebook|
     defaultNotebook = notebook
   end
 }
+
+eclient.create_note("new note " + Time.now.to_s,"hello")

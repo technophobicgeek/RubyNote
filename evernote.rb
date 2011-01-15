@@ -1,7 +1,8 @@
+# TODO need to understand ruby method parameters better. default values, named parameters.
 
-# Fix this path stuff
-$LOAD_PATH.unshift("lib/ruby/")
-$LOAD_PATH.unshift("lib/ruby/Evernote/EDAM")
+
+$LOAD_PATH.unshift("#{File.dirname(__FILE__)}/lib/ruby/")
+$LOAD_PATH.unshift("#{File.dirname(__FILE__)}/lib/ruby/Evernote/EDAM")
 
 require "digest/md5"
 require "thrift/types"
@@ -28,8 +29,13 @@ module VisualTasks
     @@userStoreUrl = "https://#{@@evernoteHost}/edam/user"
     @@noteStoreUrlBase = "https://#{@@evernoteHost}/edam/note/"
          
-
+    @@empty_note = '<?xml version="1.0" encoding="UTF-8"?>' +
+        '<!DOCTYPE en-note SYSTEM "http://xml.evernote.com/pub/enml.dtd">' +
+        '<en-note></en-note>'
+    
     def initialize(username, password)
+      @notebooks = nil
+      
       @userStore = create_userStore
       
       versionOK = @userStore.checkVersion("Ruby EDAMTest",
@@ -49,14 +55,43 @@ module VisualTasks
     end
 
     def notebooks
-      @notebooks = @noteStore.listNotebooks(@authToken)
-      return @notebooks
+      if @notebooks.nil?
+        @notebooks = @noteStore.listNotebooks(@authToken)
+        extract_notebook_names
+      end
+      @notebooks
+    end
+
+    def create_notebook(name)
+      unless @notebook_hash.include?(name)
+        nb = Evernote::EDAM::Type::NoteBook.new()
+        nb.name = name
+        nb = createNotebook(@authToken,nb)
+        @notebook_hash[name] = nb
+      end
     end
     
-    def create_note
+    def create_note(title,txt)
+      defaultNotebook = @notebooks[0]
+      puts "Creating a new note in the default notebook: #{defaultNotebook.name}"
+
+      note = Evernote::EDAM::Type::Note.new()
+      note.notebookGuid = defaultNotebook.guid
+      note.title = title
+      note.content = text_note(txt)
+      note.created = Time.now.to_i * 1000
+      note.updated = note.created
+
+      createdNote = @noteStore.createNote(@authToken, note)
+
+      puts "Note was created, GUID = #{createdNote.guid}"
     end
     
     def tag_note
+    end
+
+    def find_notes(notebook, tag)
+      
     end
     
     private
@@ -64,20 +99,20 @@ module VisualTasks
       def create_userStore
         userStoreTransport = Thrift::HTTPClientTransport.new(@@userStoreUrl)
         userStoreProtocol = Thrift::BinaryProtocol.new(userStoreTransport)    
-        return Evernote::EDAM::UserStore::UserStore::Client.new(userStoreProtocol)
+        Evernote::EDAM::UserStore::UserStore::Client.new(userStoreProtocol)
       end
       
       def create_noteStore(user)
         noteStoreUrl = @@noteStoreUrlBase + user.shardId
         noteStoreTransport = Thrift::HTTPClientTransport.new(noteStoreUrl)
         noteStoreProtocol = Thrift::BinaryProtocol.new(noteStoreTransport)
-        return Evernote::EDAM::NoteStore::NoteStore::Client.new(noteStoreProtocol)
+        Evernote::EDAM::NoteStore::NoteStore::Client.new(noteStoreProtocol)
       end
     
       def authenticate(username,password)
         begin
           authResult = @userStore.authenticate(username, password,@@consumerKey, @@consumerSecret)
-          return ({:user => authResult.user, :token => authResult.authenticationToken})
+          ({:user => authResult.user, :token => authResult.authenticationToken})
         rescue Evernote::EDAM::Error::EDAMUserException => ex
           process_exn ex
         end
@@ -112,8 +147,20 @@ module VisualTasks
         end
 
         exit(1)
-
       end
-      
+
+      def text_note(txt)
+        %Q{<?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE en-note SYSTEM "http://xml.evernote.com/pub/enml.dtd">
+        <en-note>#{txt}</en-note>}
+      end
+
+      def extract_notebook_names
+        @notebook_hash = {} # TODO Should be a hash
+        @notebooks.each { |notebook|
+          @notebook_hash[notebook.name] = notebook
+        }
+      end
+ 
   end
 end
